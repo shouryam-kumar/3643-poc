@@ -2,7 +2,7 @@
 import React from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { useOkto } from "@okto_web3/react-sdk";
-// import './App.css';
+import './App.css';
 import LoginPage from './LoginPage';
 import Homepage from './Homepage';
 import SimpleAuthTest from './SimpleAuthTest';
