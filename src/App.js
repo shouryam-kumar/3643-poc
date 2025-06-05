@@ -1,24 +1,29 @@
-import logo from './logo.svg';
+// src/App.js - Based on Official Okto Template Repository
+import React from 'react';
+import { Route, Routes } from 'react-router-dom';
+import { useOkto } from "@okto_web3/react-sdk";
 import './App.css';
+import LoginPage from './LoginPage';
+import Homepage from './Homepage';
+import SimpleAuthTest from './SimpleAuthTest';
 
 function App() {
+  const oktoClient = useOkto();
+  
+  // Check if user is already logged in
+  const isLoggedIn = oktoClient.isLoggedIn();
+
+  console.log('🔍 App Component Status:');
+  console.log('- Okto Client:', oktoClient ? 'Loaded' : 'Not loaded');
+  console.log('- Is Logged In:', isLoggedIn);
+  console.log('- User SWA:', oktoClient.userSWA || 'Not available');
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Routes>
+      <Route path="/" element={<LoginPage />} />
+      <Route path="/home" element={<Homepage />} />
+      <Route path="/test" element={<SimpleAuthTest />} />
+    </Routes>
   );
 }
 
