@@ -1,23 +1,75 @@
-// src/Homepage.js - Based on Official Template + ERC-3643 Features
+// src/Homepage.js - ERC-3643 Token Operations with Okto Wallet
 import {
     getAccount,
     getPortfolio,
     getTokens,
     useOkto,
+    tokenTransfer,
+    evmRawTransaction,
+    getNftCollections,
+    getChains,
   } from "@okto_web3/react-sdk";
   import { googleLogout } from "@react-oauth/google";
-  import { useState } from "react";
+  import { useState, useEffect } from "react";
   import { useNavigate } from "react-router-dom";
+  import { ethers } from "ethers";
+  
+  // ERC-3643 Token ABI for transfer function
+  const ERC3643_ABI = [
+    "function transfer(address to, uint256 amount) returns (bool)",
+    "function balanceOf(address account) view returns (uint256)",
+    "function decimals() view returns (uint8)",
+  ];
   
   export default function Homepage() {
     const oktoClient = useOkto();
     const navigate = useNavigate();
     const [results, setResults] = useState({});
     const [loading, setLoading] = useState({});
-    
+    const [transferAmount, setTransferAmount] = useState('');
+    const [recipientAddress, setRecipientAddress] = useState('');
+    const [tokenAddress, setTokenAddress] = useState('');
+    const [tokenDetails, setTokenDetails] = useState(null);
+    const [error, setError] = useState(null);
+    const [accountInfo, setAccountInfo] = useState(null);
+    const [specificAddress, setSpecificAddress] = useState('0x9a8464290456f85843451b2Ed13D580188D008fB');
+  
     const isLoggedIn = oktoClient.isLoggedIn();
     const userSWA = oktoClient.userSWA;
     const clientSWA = oktoClient.clientSWA;
+  
+    // Initialize Okto client
+    useEffect(() => {
+      const initializeOkto = async () => {
+        try {
+          if (oktoClient && oktoClient.axiosInstance) {
+            // Set up request interceptor for paymaster
+            const interceptor = oktoClient.axiosInstance.interceptors.request.use(
+              (config) => {
+                if (config.data && config.data.session) {
+                  config.data.paymaster = "0x74324fA6Fa67b833dfdea4C1b3A9898574d076e3";
+                }
+                return config;
+              },
+              (error) => {
+                return Promise.reject(error);
+              }
+            );
+
+            return () => {
+              if (interceptor) {
+                oktoClient.axiosInstance.interceptors.request.eject(interceptor);
+              }
+            };
+          }
+        } catch (error) {
+          console.error('Error initializing Okto:', error);
+          setError('Failed to initialize Okto client');
+        }
+      };
+
+      initializeOkto();
+    }, [oktoClient]);
   
     // Handles user logout process
     async function handleLogout() {
@@ -42,6 +94,7 @@ import {
     // Generic function to handle API calls with loading states
     const handleApiCall = async (apiFunction, functionName) => {
       setLoading(prev => ({ ...prev, [functionName]: true }));
+      setError(null);
       try {
         const result = await apiFunction(oktoClient);
         setResults(prev => ({ ...prev, [functionName]: result }));
@@ -51,231 +104,478 @@ import {
         console.error(`${functionName} error:`, error);
         const errorResult = { error: error.message };
         setResults(prev => ({ ...prev, [functionName]: errorResult }));
+        setError(error.message);
         return errorResult;
       } finally {
         setLoading(prev => ({ ...prev, [functionName]: false }));
       }
     };
   
-    // ERC-3643 Compliance Check Function
-    const checkERC3643Compliance = async () => {
-      setLoading(prev => ({ ...prev, 'erc3643': true }));
+    // Handle token transfer
+    const handleTokenTransfer = async () => {
+      if (!transferAmount || !recipientAddress || !tokenAddress) {
+        setError('Please enter amount, recipient address, and token address');
+        return;
+      }
+  
+      setLoading(prev => ({ ...prev, transfer: true }));
+      setError(null);
       try {
-        // This is a demonstration - in a real implementation, you would:
-        // 1. Check if token implements ERC-3643 interface
-        // 2. Verify identity registry
-        // 3. Check transfer eligibility
+        // Create contract instance
+        const provider = new ethers.JsonRpcProvider(process.env.REACT_APP_RPC_URL);
+        const contract = new ethers.Contract(tokenAddress, ERC3643_ABI, provider);
         
-        const demoComplianceResult = {
-          tokenAddress: "0x1234567890abcdef...", // Example ERC-3643 token
-          isERC3643Compliant: true,
-          identityRegistry: "0xabcdef1234567890...",
-          userVerified: true,
-          transferEligible: true,
-          complianceChecks: {
-            identityVerification: "✅ Verified",
-            countryRestrictions: "✅ Allowed",
-            investorAccreditation: "✅ Accredited",
-            transferLimits: "✅ Within limits"
-          },
-          message: "User is eligible for ERC-3643 token transfers"
-        };
+        // Get token decimals
+        const decimals = await contract.decimals();
         
-        setResults(prev => ({ ...prev, 'erc3643': demoComplianceResult }));
-        console.log('ERC-3643 compliance check:', demoComplianceResult);
-        return { result: demoComplianceResult };
+        // Convert amount to wei
+        const amount = ethers.parseUnits(transferAmount, decimals);
+        
+        // Execute token transfer through Okto
+        const tx = await tokenTransfer(oktoClient, {
+          tokenAddress,
+          to: recipientAddress,
+          amount: amount.toString(),
+        });
+  
+        console.log('Transfer transaction:', tx);
+        setError(null);
+        alert('Transfer initiated! Transaction hash: ' + tx.hash);
+        
+        // Refresh portfolio after transfer
+        await handleApiCall(getPortfolio, 'portfolio');
+        
       } catch (error) {
-        console.error('ERC-3643 compliance check error:', error);
-        const errorResult = { error: error.message };
-        setResults(prev => ({ ...prev, 'erc3643': errorResult }));
-        return errorResult;
+        console.error('Transfer error:', error);
+        setError('Transfer failed: ' + error.message);
       } finally {
-        setLoading(prev => ({ ...prev, 'erc3643': false }));
+        setLoading(prev => ({ ...prev, transfer: false }));
       }
     };
   
-    // Button component for API calls
-    const ApiButton = ({ title, apiFunction, functionName, description = "" }) => (
-      <div className="text-center">
-        <button
-          className="w-full p-3 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:bg-blue-300"
-          onClick={() => handleApiCall(apiFunction, functionName)}
-          disabled={loading[functionName]}
-        >
-          {loading[functionName] ? 'Loading...' : title}
-        </button>
-        {description && (
-          <p className="text-xs text-gray-600 mt-1">{description}</p>
-        )}
-      </div>
-    );
+    // Handle raw transaction
+    const handleRawTransaction = async () => {
+      if (!transferAmount || !recipientAddress || !tokenAddress) {
+        setError('Please enter amount, recipient address, and token address');
+        return;
+      }
   
-    // Results display component
-    const ResultsDisplay = ({ functionName, title }) => {
-      const result = results[functionName];
-      if (!result) return null;
+      setLoading(prev => ({ ...prev, rawTx: true }));
+      setError(null);
+      try {
+        // Create contract instance
+        const provider = new ethers.JsonRpcProvider(process.env.REACT_APP_RPC_URL);
+        const contract = new ethers.Contract(tokenAddress, ERC3643_ABI, provider);
+        
+        // Get token decimals
+        const decimals = await contract.decimals();
+        
+        // Convert amount to wei
+        const amount = ethers.parseUnits(transferAmount, decimals);
+        
+        // Create transfer transaction
+        const transferData = contract.interface.encodeFunctionData("transfer", [
+          recipientAddress,
+          amount
+        ]);
   
-      return (
-        <div className="mt-4 p-4 bg-gray-100 rounded border">
-          <h4 className="font-semibold text-gray-800 mb-2">{title} Result:</h4>
-          <pre className="text-xs bg-gray-800 text-green-400 p-2 rounded overflow-auto max-h-40">
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        </div>
-      );
+        // Execute raw transaction through Okto
+        const tx = await evmRawTransaction(oktoClient, {
+          to: tokenAddress,
+          data: transferData,
+          value: "0x0", // No ETH being sent
+        });
+  
+        console.log('Raw transaction:', tx);
+        setError(null);
+        alert('Transaction initiated! Transaction hash: ' + tx.hash);
+        
+        // Refresh portfolio after transfer
+        await handleApiCall(getPortfolio, 'portfolio');
+        
+      } catch (error) {
+        console.error('Raw transaction error:', error);
+        setError('Transaction failed: ' + error.message);
+      } finally {
+        setLoading(prev => ({ ...prev, rawTx: false }));
+      }
+    };
+  
+    // Check token details
+    const checkTokenDetails = async () => {
+      if (!tokenAddress) {
+        setError('Please enter token address');
+        return;
+      }
+
+      setLoading(prev => ({ ...prev, tokenCheck: true }));
+      setError(null);
+      try {
+        // Get all tokens
+        const tokens = await getTokens(oktoClient);
+        console.log('All tokens:', tokens);
+
+        // Get portfolio
+        const portfolio = await getPortfolio(oktoClient);
+        console.log('Portfolio:', portfolio);
+
+        // Get NFT collections
+        const nftCollections = await getNftCollections(oktoClient);
+        console.log('NFT Collections:', nftCollections);
+
+        // Get chains
+        const chains = await getChains(oktoClient);
+        console.log('Available chains:', chains);
+
+        setTokenDetails({
+          tokens,
+          portfolio,
+          nftCollections,
+          chains
+        });
+        setError(null);
+      } catch (error) {
+        console.error('Error checking token details:', error);
+        setError('Error checking token details: ' + error.message);
+      } finally {
+        setLoading(prev => ({ ...prev, tokenCheck: false }));
+      }
+    };
+  
+    // Add function to get account info
+    const handleGetAccount = async () => {
+      setLoading(prev => ({ ...prev, account: true }));
+      setError(null);
+      try {
+        const account = await getAccount(oktoClient);
+        console.log('Account info:', account);
+        setAccountInfo(account);
+      } catch (error) {
+        console.error('Error getting account:', error);
+        setError('Failed to get account info: ' + error.message);
+      } finally {
+        setLoading(prev => ({ ...prev, account: false }));
+      }
+    };
+  
+    // Add function to check specific address portfolio
+    const checkSpecificAddressPortfolio = async () => {
+      setLoading(prev => ({ ...prev, specificPortfolio: true }));
+      setError(null);
+      try {
+        // Get portfolio for specific address
+        const portfolio = await getPortfolio(oktoClient, {
+          address: specificAddress
+        });
+        console.log('Portfolio for address:', specificAddress, portfolio);
+        setResults(prev => ({ ...prev, specificPortfolio: portfolio }));
+      } catch (error) {
+        console.error('Error getting portfolio:', error);
+        setError('Failed to get portfolio: ' + error.message);
+      } finally {
+        setLoading(prev => ({ ...prev, specificPortfolio: false }));
+      }
     };
   
     return (
-      <main className="min-h-screen bg-gradient-to-b from-violet-100 to-violet-200 py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto space-y-8">
-          <div className="text-center">
-            <h1 className="text-4xl font-bold text-violet-900 mb-4">
-              🚀 ERC-3643 Okto Integration
+      <main className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto space-y-10">
+          {/* Error Display */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <p className="text-red-600">{error}</p>
+            </div>
+          )}
+  
+          {/* Header */}
+          <div className="text-center space-y-4">
+            <h1 className="text-5xl font-bold bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent">
+              🚀 ERC-3643 Token Operations
             </h1>
-            <p className="text-lg text-violet-700">
-              Official Okto SDK with ERC-3643 Compliance Features
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              Manage your ERC-3643 tokens with Okto's embedded wallet
             </p>
           </div>
   
-          {/* User Details */}
-          <div className="space-y-4">
-            <h2 className="text-violet-900 font-bold text-2xl">👤 User Details</h2>
-            <div className="bg-white p-6 rounded-xl shadow-lg border border-violet-200">
-              <pre className="whitespace-pre-wrap break-words text-gray-800">
-                {isLoggedIn
-                  ? `✅ Logged in \n👤 User SWA: ${userSWA} \n🔧 Client SWA: ${clientSWA}`
-                  : "❌ Not signed in"}
-              </pre>
-            </div>
-          </div>
-  
-          {/* Session Management */}
-          <div className="bg-white rounded-xl shadow-lg border border-violet-200 p-6">
-            <h2 className="text-violet-900 font-semibold text-2xl mb-6">
-              🔐 Session Management
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              <ApiButton
-                title="Logout"
-                apiFunction={handleLogout}
-                functionName="logout"
-                description="Clear session and return to login"
-              />
-            </div>
-          </div>
-  
-          {/* Okto Explorer Functions */}
-          <div className="bg-white rounded-xl shadow-lg border border-violet-200 p-6">
-            <h2 className="text-violet-900 font-semibold text-2xl mb-6">
-              🔍 Okto Explorer Functions
-            </h2>
-            <p className="text-gray-600 mb-6">
-              For supported networks, check out{" "}
-              <a
-                className="underline text-indigo-700 hover:text-indigo-900"
-                href="https://docs.okto.tech/docs/supported-chains"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Supported Chains & Tokens Guide
-              </a>
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              <ApiButton
-                title="Get Account"
-                apiFunction={getAccount}
-                functionName="getAccount"
-                description="Fetch user wallet accounts"
-              />
-              <ApiButton
-                title="Get Portfolio"
-                apiFunction={getPortfolio}
-                functionName="getPortfolio"
-                description="View token balances"
-              />
-              <ApiButton
-                title="Get Tokens"
-                apiFunction={getTokens}
-                functionName="getTokens"
-                description="List available tokens"
-              />
-            </div>
-            
-            {/* Display results */}
+          {/* Account Information */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-violet-100">
+            <h2 className="text-2xl font-bold text-violet-900 mb-6">👤 Account Information</h2>
             <div className="space-y-4">
-              <ResultsDisplay functionName="getAccount" title="Account" />
-              <ResultsDisplay functionName="getPortfolio" title="Portfolio" />
-              <ResultsDisplay functionName="getTokens" title="Tokens" />
+              <button
+                onClick={handleGetAccount}
+                disabled={loading.account}
+                className="w-full p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg hover:from-violet-700 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading.account ? 'Loading...' : 'Get Account Info'}
+              </button>
+
+              {accountInfo && (
+                <div className="mt-6 p-6 bg-gray-50 rounded-xl">
+                  <h3 className="font-semibold text-violet-900 mb-4">Account Details:</h3>
+                  <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                    {JSON.stringify(accountInfo, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
   
-          {/* ERC-3643 Compliance Section */}
-          <div className="bg-white rounded-xl shadow-lg border border-violet-200 p-6">
-            <h2 className="text-violet-900 font-semibold text-2xl mb-6">
-              🛡️ ERC-3643 Compliance Features
-            </h2>
-            <p className="text-gray-600 mb-6">
-              Check compliance status for ERC-3643 compliant security tokens.
-              This includes identity verification, transfer restrictions, and regulatory compliance.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <ApiButton
-                title="Check ERC-3643 Compliance"
-                apiFunction={checkERC3643Compliance}
-                functionName="erc3643"
-                description="Verify compliance for token transfers"
-              />
+          {/* Wallet Status */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-violet-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-violet-900 mb-2">👤 Wallet Status</h2>
+                <div className="space-y-2">
+                  <p className="text-gray-600">
+                    <span className="font-semibold">Status:</span>{" "}
+                    <span className={`px-2 py-1 rounded-full text-sm ${isLoggedIn ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {isLoggedIn ? 'Connected' : 'Disconnected'}
+                    </span>
+                  </p>
+                  {isLoggedIn && (
+                    <p className="text-gray-600">
+                      <span className="font-semibold">Wallet Address:</span>{" "}
+                      <span className="font-mono text-sm">{userSWA}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => handleLogout()}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+              >
+                Logout
+              </button>
             </div>
+          </div>
+  
+          {/* Portfolio Section */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-violet-100">
+            <h2 className="text-2xl font-bold text-violet-900 mb-6">💰 Portfolio</h2>
+            <div className="space-y-4">
+              <button
+                onClick={() => handleApiCall(getPortfolio, 'portfolio')}
+                className="w-full p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg hover:from-violet-700 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading.portfolio}
+              >
+                {loading.portfolio ? 'Loading...' : 'Refresh Portfolio'}
+              </button>
+              
+              {results.portfolio && (
+                <div className="mt-6 p-6 bg-gray-50 rounded-xl">
+                  <h3 className="font-semibold text-violet-900 mb-4">Token Balances:</h3>
+                  <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                    {JSON.stringify(results.portfolio, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+  
+          {/* Token Transfer Section */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-violet-100">
+            <h2 className="text-2xl font-bold text-violet-900 mb-6">🔄 Token Transfer</h2>
             
-            <ResultsDisplay functionName="erc3643" title="ERC-3643 Compliance" />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Token Contract Address
+                </label>
+                <input
+                  type="text"
+                  value={tokenAddress}
+                  onChange={(e) => setTokenAddress(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                  placeholder="0x..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Recipient Address
+                </label>
+                <input
+                  type="text"
+                  value={recipientAddress}
+                  onChange={(e) => setRecipientAddress(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                  placeholder="0x..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  value={transferAmount}
+                  onChange={(e) => setTransferAmount(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                  placeholder="0.0"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  onClick={handleTokenTransfer}
+                  disabled={loading.transfer}
+                  className="p-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading.transfer ? 'Processing...' : 'Transfer Tokens'}
+                </button>
+                
+                <button
+                  onClick={handleRawTransaction}
+                  disabled={loading.rawTx}
+                  className="p-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading.rawTx ? 'Processing...' : 'Execute Raw Transaction'}
+                </button>
+              </div>
+            </div>
           </div>
   
-          {/* Token Operations */}
-          <div className="bg-white rounded-xl shadow-lg border border-violet-200 p-6">
-            <h2 className="text-violet-900 font-semibold text-2xl mb-6">
-              💰 Token Operations
-            </h2>
-            <p className="text-gray-600 mb-6">
-              Perform token transfers and operations with built-in compliance checking.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          {/* Token Details Section */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-violet-100">
+            <h2 className="text-2xl font-bold text-violet-900 mb-6">🔍 Token Details</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Token Contract Address
+                </label>
+                <input
+                  type="text"
+                  value={tokenAddress}
+                  onChange={(e) => setTokenAddress(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                  placeholder="0x..."
+                />
+              </div>
+
               <button
-                onClick={() => alert('Token Transfer feature - Would integrate with Okto transfer APIs')}
-                className="px-6 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-center font-medium"
+                onClick={checkTokenDetails}
+                disabled={loading.tokenCheck}
+                className="w-full p-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                🔄 Transfer Tokens
+                {loading.tokenCheck ? 'Checking...' : 'Check Token Details'}
               </button>
+
+              {tokenDetails && (
+                <div className="mt-6 space-y-6">
+                  <div className="p-6 bg-gray-50 rounded-xl">
+                    <h3 className="font-semibold text-violet-900 mb-4">Available Chains:</h3>
+                    <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                      {JSON.stringify(tokenDetails.chains, null, 2)}
+                    </pre>
+                  </div>
+
+                  <div className="p-6 bg-gray-50 rounded-xl">
+                    <h3 className="font-semibold text-violet-900 mb-4">All Tokens:</h3>
+                    <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                      {JSON.stringify(tokenDetails.tokens, null, 2)}
+                    </pre>
+                  </div>
+
+                  <div className="p-6 bg-gray-50 rounded-xl">
+                    <h3 className="font-semibold text-violet-900 mb-4">Portfolio:</h3>
+                    <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                      {JSON.stringify(tokenDetails.portfolio, null, 2)}
+                    </pre>
+                  </div>
+
+                  <div className="p-6 bg-gray-50 rounded-xl">
+                    <h3 className="font-semibold text-violet-900 mb-4">NFT Collections:</h3>
+                    <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                      {JSON.stringify(tokenDetails.nftCollections, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+  
+          {/* Specific Address Portfolio */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-violet-100">
+            <h2 className="text-2xl font-bold text-violet-900 mb-6">💰 Specific Address Portfolio</h2>
+            <div className="space-y-4">
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h3 className="text-sm font-medium text-gray-500 mb-1">Address to Check</h3>
+                <div className="flex items-center gap-2">
+                  <code className="text-sm font-mono bg-gray-100 px-2 py-1 rounded">
+                    {specificAddress}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(specificAddress);
+                      alert('Address copied to clipboard!');
+                    }}
+                    className="text-violet-600 hover:text-violet-700"
+                  >
+                    📋
+                  </button>
+                </div>
+              </div>
+
               <button
-                onClick={() => alert('Raw Transaction feature - Would integrate with Okto raw transaction APIs')}
-                className="px-6 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-center font-medium"
+                onClick={checkSpecificAddressPortfolio}
+                disabled={loading.specificPortfolio}
+                className="w-full p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg hover:from-violet-700 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                ⚙️ Raw Transactions
+                {loading.specificPortfolio ? 'Loading...' : 'Check Portfolio'}
               </button>
-              <button
-                onClick={() => alert('ERC-3643 Transfer - Would implement compliance-checked transfers')}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-center font-medium"
-              >
-                🛡️ ERC-3643 Transfer
-              </button>
+
+              {results.specificPortfolio && (
+                <div className="mt-6 p-6 bg-gray-50 rounded-xl">
+                  <h3 className="font-semibold text-violet-900 mb-4">Portfolio Details:</h3>
+                  <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                    {JSON.stringify(results.specificPortfolio, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
   
           {/* Development Info */}
-          <div className="bg-gray-800 text-white rounded-xl shadow-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">🔧 Development Information</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div className="bg-gradient-to-r from-gray-800 to-gray-900 text-white rounded-2xl shadow-xl p-8">
+            <h2 className="text-2xl font-bold mb-6">🔧 Development Information</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div>
-                <h3 className="font-semibold text-blue-400 mb-2">Environment:</h3>
-                <p>Mode: {import.meta.env.VITE_OKTO_ENVIRONMENT || 'sandbox'}</p>
-                <p>Okto SDK: @okto_web3/react-sdk</p>
+                <h3 className="font-semibold text-blue-400 mb-4">Environment:</h3>
+                <div className="space-y-2">
+                  <p className="flex items-center gap-2">
+                    <span className="text-gray-400">Mode:</span>
+                    <span className="px-2 py-1 bg-gray-700 rounded-full text-sm">
+                      {process.env.REACT_APP_OKTO_ENVIRONMENT || 'sandbox'}
+                    </span>
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <span className="text-gray-400">SDK:</span>
+                    <span className="px-2 py-1 bg-gray-700 rounded-full text-sm">
+                      @okto_web3/react-sdk
+                    </span>
+                  </p>
+                </div>
               </div>
               <div>
-                <h3 className="font-semibold text-green-400 mb-2">Features Implemented:</h3>
-                <ul className="space-y-1">
-                  <li>✅ Google OAuth Authentication</li>
-                  <li>✅ Multi-chain Account Management</li>
-                  <li>✅ Portfolio & Token Queries</li>
-                  <li>✅ ERC-3643 Compliance Framework</li>
+                <h3 className="font-semibold text-green-400 mb-4">Features:</h3>
+                <ul className="space-y-2">
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">✅</span>
+                    <span>ERC-3643 Token Integration</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">✅</span>
+                    <span>Okto Embedded Wallet</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">✅</span>
+                    <span>Token Transfer</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">✅</span>
+                    <span>Raw Transaction Support</span>
+                  </li>
                 </ul>
               </div>
             </div>
