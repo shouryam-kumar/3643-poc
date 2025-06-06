@@ -3,6 +3,7 @@ import { useOkto } from "@okto_web3/react-sdk";
 import { GoogleLogin } from "@react-oauth/google";
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import './LoginPage.css'; // Import the vanilla CSS file
 
 export default function LoginPage() {
   const oktoClient = useOkto();
@@ -121,58 +122,44 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 md:p-12">
+    <div className="login-page-container">
       {/* Main Authentication Box */}
-      <div className="bg-black border border-gray-800 rounded-lg shadow-xl p-8 w-full max-w-md">
-        <h1 className="text-3xl font-bold text-white text-center mb-8">
+      <div className="login-box">{/* Login box container */}
+        <h1 className="login-title">{/* Title */}
           🚀 ERC-3643 Okto Demo
         </h1>
 
-        <div className="space-y-6">
-          {/* Google OAuth Configuration Warning */}
-          <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-100 p-4 rounded-lg">
-            <h4 className="font-semibold mb-2">⚠️ Google OAuth Configuration Required</h4>
-            <p className="text-sm mb-2">
-              Your Google Client ID needs to be configured for localhost:3000
-            </p>
-            <ol className="text-xs space-y-1">
-              <li>1. Go to <a href="https://console.cloud.google.com" className="text-yellow-300 underline" target="_blank" rel="noopener noreferrer">Google Cloud Console</a></li>
-              <li>2. Navigate to APIs & Services → Credentials</li>
-              <li>3. Edit your OAuth 2.0 Client ID</li>
-              <li>4. Add <code className="bg-yellow-800 px-1 rounded">http://localhost:3000</code> to Authorized JavaScript origins</li>
-              <li>5. Save and try logging in again</li>
-            </ol>
-          </div>
+        <div className="login-content-area">{/* Content area with spacing */}
 
           {/* Error Display */}
           {authError && (
-            <div className="bg-red-900/50 border border-red-700 text-red-100 p-4 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-semibold">❌ {authError.type}</h4>
+            <div className="error-message-box">{/* Error container */}
+              <div className="error-message-header">{/* Error header */}
+                <h4 className="error-message-title">❌ {authError.type}</h4>
                 <button
                   onClick={() => setAuthError(null)}
-                  className="text-red-300 hover:text-red-100"
+                  className="error-message-close"
                 >
                   ✕
                 </button>
               </div>
-              <p className="text-sm mb-2">{authError.message}</p>
+              <p className="error-message-text">{authError.message}</p>
               
               {authError.solutions && (
-                <div className="mt-3">
-                  <p className="text-xs font-semibold mb-2">💡 Solutions:</p>
-                  <ul className="text-xs space-y-1">
+                <div className="error-solutions">{/* Solutions container */}
+                  <p className="error-solutions-title">💡 Solutions:</p>
+                  <ul className="error-solutions-list">
                     {authError.solutions.map((solution, index) => (
-                      <li key={index}>• {solution}</li>
+                      <li key={index} className="error-solution-item">• {solution}</li>
                     ))}
                   </ul>
                 </div>
               )}
               
               {authError.details && (
-                <details className="mt-3">
-                  <summary className="text-xs cursor-pointer text-red-300">🔍 Technical Details</summary>
-                  <pre className="text-xs mt-2 bg-red-950 p-2 rounded overflow-auto max-h-32">
+                <details className="error-details">{/* Details container */}
+                  <summary className="error-details-summary">🔍 Technical Details</summary>
+                  <pre className="error-details-code">
                     {authError.details}
                   </pre>
                 </details>
@@ -180,7 +167,7 @@ export default function LoginPage() {
               
               <button
                 onClick={retryAuthentication}
-                className="mt-3 px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
+                className="error-retry-button"
               >
                 🔄 Retry Authentication
               </button>
@@ -188,54 +175,33 @@ export default function LoginPage() {
           )}
 
           {/* Google Login */}
-          <div className="flex flex-col items-center space-y-4">
-            <p className="text-gray-400 text-center">
+          <div className="google-login-section">{/* Google login section */}
+            <p className="google-login-subtitle">{/* Subtitle */}
               Sign in with your Google account to access your embedded wallet
             </p>
             
             {isAuthenticating ? (
-              <div className="flex items-center space-x-2 text-blue-400">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-400"></div>
+              <div className="loading-message">{/* Loading state */}
+                <div className="loading-spinner"></div>{/* Spinner */}
                 <span>Authenticating with Okto...</span>
               </div>
             ) : (
-              <GoogleLogin
-                onSuccess={handleGoogleLogin}
-                onError={handleGoogleError}
-                theme="filled_black"
-                size="large"
-                shape="rectangular"
-              />
+              <div className="google-login-button-container">
+                 <GoogleLogin
+                    onSuccess={handleGoogleLogin}
+                    onError={handleGoogleError}
+                    theme="filled_black"
+                    size="large"
+                    shape="rectangular"
+                 />
+              </div>
             )}
           </div>
 
-          {/* Environment Status */}
-          <div style={{ 
-            marginTop: '20px', 
-            padding: '15px', 
-            background: '#1a4d1a', 
-            borderRadius: '5px',
-            border: '1px solid #4CAF50'
-          }}>
-            <h4 style={{ color: '#4CAF50', marginTop: 0, fontSize: '14px' }}>✅ Configuration Status</h4>
-            <div style={{ fontSize: '12px', color: '#cccccc' }}>
-              <p>🔑 Okto Keys: {process.env.REACT_APP_OKTO_CLIENT_PRIVATE_KEY ? 'Configured' : 'Missing'}</p>
-              <p>🔗 Google OAuth: {process.env.REACT_APP_GOOGLE_CLIENT_ID ? 'Configured' : 'Missing'}</p>
-              <p>🌍 Environment: {process.env.REACT_APP_OKTO_ENVIRONMENT || 'sandbox'}</p>
-              <p>🌐 Current Origin: {window.location.origin}</p>
-            </div>
-          </div>
-
           {/* Info Section */}
-          <div style={{ 
-            marginTop: '20px', 
-            padding: '15px', 
-            background: '#1a3d5c', 
-            borderRadius: '5px',
-            border: '1px solid #61dafb'
-          }}>
-            <h4 style={{ color: '#61dafb', marginTop: 0, fontSize: '14px' }}>ℹ️ About This Demo</h4>
-            <p style={{ fontSize: '12px', color: '#cccccc', margin: 0 }}>
+          <div className="info-box">{/* Info container */}
+            <h4 className="info-box-title">ℹ️ About This Demo</h4>
+            <p className="info-box-text">
               This demo showcases ERC-3643 compliant token operations using Okto's embedded wallet infrastructure.
               After authentication, you'll have access to multi-chain token transfers, portfolio management, and compliance checking.
             </p>
@@ -244,12 +210,13 @@ export default function LoginPage() {
       </div>
 
       {/* Direct navigation for testing */}
-      <button
+      {/* Removing debug button as it's not part of core login UI */}
+      {/* <button
         onClick={() => navigate("/home")}
         className="mt-4 px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition text-sm"
       >
-        🔧 Skip to Homepage (Debug)
-      </button>
-    </main>
+        Skip to Homepage (Debug)
+      </button> */}
+    </div>
   );
 }

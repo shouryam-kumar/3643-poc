@@ -253,4 +253,83 @@
   background: rgba(234, 179, 8, 0.1);
   border: 1px solid rgba(234, 179, 8, 0.3);
   color: #fef08a;
+}
+
+/* Add styles for the new login page */
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #a78bfa 0%, #818cf8 100%); /* Match existing gradient */
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.login-box {
+    background-color: #1f2937; /* Dark background for contrast */
+    color: #ffffff; /* White text */
+    padding: 40px;
+    border-radius: 12px;
+    text-align: center;
+    max-width: 400px;
+    width: 100%;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Add subtle shadow */
+}
+
+.login-title {
+    font-size: 1.8rem;
+    font-weight: bold;
+    margin-bottom: 15px;
+    color: #c4b5fd; /* Lighter violet */
+}
+
+.login-subtitle {
+    font-size: 1rem;
+    color: #d1d5db; /* Grayish text */
+    margin-bottom: 30px;
+}
+
+.google-login-button-container {
+    margin-bottom: 20px; /* Space below the button */
+    /* Google button is an iframe/complex element, often hard to style directly. */
+    /* Basic container styling helps alignment. Specific button styling is limited. */
+}
+
+.loading-message {
+    color: #9ca3af; /* Gray text for loading */
+    margin-top: 15px;
+    font-size: 0.9rem;
+}
+
+.error-message {
+    color: #fca5a5; /* Red text for errors */
+    background-color: #be123c33; /* Red background with opacity */
+    border: 1px solid #dc262680; /* Red border */
+    padding: 10px;
+    border-radius: 6px;
+    margin-top: 15px;
+    font-size: 0.9rem;
+    word-break: break-word; /* Prevent long error messages from overflowing */
+}
+
+.setup-instruction {
+    color: #9ca3af; /* Gray text */
+    font-size: 0.8rem;
+    margin-top: 25px;
+    padding-top: 15px;
+    border-top: 1px dashed #4b5563; /* Separator line */
+}
+
+/* Ensure existing body/html styles allow full height */
+html, body, #root, .min-h-screen {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+}
+
+.min-h-screen {
+    min-height: 100vh;
 } 

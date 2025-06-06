@@ -5,12 +5,13 @@ import {
     getTokens,
     useOkto,
   } from "@okto_web3/react-sdk";
-  import { googleLogout } from "@react-oauth/google";
-  import { useState } from "react";
+  import { googleLogout, GoogleLogin } from "@react-oauth/google";
+  import { useState, useEffect } from "react";
   import { useNavigate } from "react-router-dom";
   import TokenTransfer from './components/TokenTransfer';
   import RawTransaction from './components/RawTransaction';
   import JobTracker from './components/JobTracker';
+  import './components/styles.css'; // Ensure styles are imported
   
   export default function Homepage() {
     const oktoClient = useOkto();
@@ -22,6 +23,23 @@ import {
     const userSWA = oktoClient.userSWA;
     const clientSWA = oktoClient.clientSWA;
     const accountInfo = results.getAccount?.result;
+  
+    // State for login specific UI
+    const [isLoginLoading, setIsLoginLoading] = useState(false);
+    const [loginError, setLoginError] = useState(null);
+  
+    useEffect(() => {
+        // Check if already logged in on mount
+        if (isLoggedIn) {
+          console.log('✅ Already logged in, navigating to homepage content.');
+          // No navigation needed here if Homepage is the content for logged in users
+        } else {
+          console.log('❌ Not logged in, showing login screen.');
+          // Clear any previous login errors on load if they were from a failed attempt
+          setLoginError(null); 
+          setIsLoginLoading(false);
+        }
+      }, [isLoggedIn]);
   
     // Handles user logout process
     async function handleLogout() {
@@ -35,13 +53,44 @@ import {
         localStorage.removeItem("okto_session");
         
         console.log('✅ Logout successful');
-        navigate("/");
+        navigate("/"); // Navigate back to the root which will show the login UI
         return { result: "logout success" };
       } catch (error) {
         console.error("❌ Logout failed:", error);
         return { result: "logout failed" };
       }
     }
+  
+    // Handles Google login success
+    const handleGoogleLoginSuccess = async (credentialResponse) => {
+        console.log('🔑 Google login success, credential:', credentialResponse);
+        setIsLoginLoading(true);
+        setLoginError(null);
+        try {
+          if (credentialResponse.credential) {
+            localStorage.setItem("googleIdToken", credentialResponse.credential);
+            console.log('Sending credential to Okto SDK...');
+            await oktoClient.handleCredentialResponse(credentialResponse.credential);
+            console.log('✅ Okto SDK login handled');
+            // The useOkto hook should update isLoggedIn, which will trigger the useEffect
+            // and render the main content.
+          } else {
+            throw new Error('No credential found in Google response');
+          }
+        } catch (error) {
+          console.error('❌ Okto SDK login failed:', error);
+          setLoginError(error.message || 'Okto SDK login failed');
+        } finally {
+           setIsLoginLoading(false);
+        }
+      };
+  
+    // Handles Google login error
+    const handleGoogleLoginError = () => {
+        console.error('❌ Google login failed');
+        setIsLoginLoading(false);
+        setLoginError('Google login failed. Please try again.');
+      };
   
     // Generic function to handle API calls with loading states
     const handleApiCall = async (apiFunction, functionName) => {
@@ -205,6 +254,33 @@ import {
       );
     };
   
+    // Conditional rendering based on login status
+    if (!isLoggedIn) {
+        return (
+            <div className="login-container">
+                <div className="login-box">
+                    <h1 className="login-title">Welcome to Okto Demo</h1>
+                    <p className="login-subtitle">Connect your wallet via Google to get started</p>
+                    <div className="google-login-button-container">
+                         <GoogleLogin
+                            onSuccess={handleGoogleLoginSuccess}
+                            onError={handleGoogleLoginError}
+                            // You might want to add requestStatus here if the GoogleLogin component supports it
+                         />
+                    </div>
+                    {isLoginLoading && <p className="loading-message">Loading...</p>}
+                    {loginError && <p className="error-message">{loginError}</p>}
+                     {/* Basic instruction for setting up Google Auth */}
+                     <p className="setup-instruction">
+                        If Google login isn't working, ensure you have set up Google OAuth credentials
+                        and added your Google Client ID to the .env file as `REACT_APP_GOOGLE_CLIENT_ID`.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+  
+    // Render main application content if logged in
     return (
       <main className="min-h-screen bg-gradient-to-b from-violet-100 to-violet-200 py-12 px-4 sm:px-6 lg:px-8">
         <div className="container mx-auto space-y-8">
