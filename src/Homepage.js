@@ -10,6 +10,7 @@ import {
   import { useNavigate } from "react-router-dom";
   import TokenTransfer from './components/TokenTransfer';
   import RawTransaction from './components/RawTransaction';
+  import JobTracker from './components/JobTracker';
   
   export default function Homepage() {
     const oktoClient = useOkto();
@@ -297,6 +298,8 @@ import {
               <ResultsDisplay functionName="getTokens" title="Tokens" />
             </div>
           </div>
+
+          <JobTracker />
   
          
           

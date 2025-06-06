@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useOkto } from '@okto_web3/react-sdk';
 import { tokenTransfer, evmRawTransaction } from '@okto_web3/react-sdk/userop';
-import { getChains, getTokens, getPortfolio } from '@okto_web3/react-sdk';
+import { getChains, getTokens, getPortfolio, getAccount } from '@okto_web3/react-sdk';
 import bigInt from 'big-integer';
 import './styles.css';
 
@@ -9,6 +9,19 @@ import './styles.css';
 if (typeof BigInt === 'undefined') {
   global.BigInt = require('big-integer');
 }
+
+// Ensure we use native BigInt when available
+const createBigInt = (value) => {
+  // Use window.BigInt or global BigInt to avoid ESLint errors
+  const NativeBigInt = (typeof window !== 'undefined' && window.BigInt) || 
+                       (typeof global !== 'undefined' && global.BigInt);
+  
+  if (NativeBigInt && typeof NativeBigInt === 'function') {
+    return NativeBigInt(value);
+  } else {
+    return bigInt(value);
+  }
+};
 
 // Modal Component
 const Modal = ({ isOpen, onClose, title, children }) =>
@@ -33,6 +46,7 @@ export default function TokenTransfer() {
   const [chains, setChains] = useState([]);
   const [tokens, setTokens] = useState([]);
   const [portfolio, setPortfolio] = useState(null);
+  const [accounts, setAccounts] = useState([]); // Add accounts state
   const [selectedChain, setSelectedChain] = useState('');
   const [selectedToken, setSelectedToken] = useState('');
   const [amount, setAmount] = useState('');
@@ -69,18 +83,155 @@ export default function TokenTransfer() {
     closeAllModals();
   };
 
+  // FIXED: More robust network-specific account address finder
+  const getNetworkAccountAddress = (caip2Id) => {
+    console.log('🔍 ROBUST SEARCH - Looking for account with caip2Id:', caip2Id);
+    console.log('🔍 ROBUST SEARCH - Available accounts:', accounts);
+    
+    if (!accounts || accounts.length === 0) {
+      console.warn('❌ No accounts available');
+      return null;
+    }
+    
+    // Try multiple search strategies
+    
+    // Strategy 1: Exact match
+    let networkAccount = accounts.find(account => account.caipId === caip2Id);
+    if (networkAccount) {
+      console.log('✅ STRATEGY 1 (Exact) - Found account:', networkAccount);
+      return networkAccount.address;
+    }
+    
+    // Strategy 2: Try with different case
+    networkAccount = accounts.find(account => 
+      account.caipId && account.caipId.toLowerCase() === caip2Id.toLowerCase()
+    );
+    if (networkAccount) {
+      console.log('✅ STRATEGY 2 (Case) - Found account:', networkAccount);
+      return networkAccount.address;
+    }
+    
+    // Strategy 3: Extract chain ID and try to match by chainId field
+    const chainIdFromCaip = caip2Id.split(':')[1]; // Extract "137" from "eip155:137"
+    networkAccount = accounts.find(account => 
+      account.chainId === chainIdFromCaip || 
+      (account.caipId && account.caipId.includes(chainIdFromCaip))
+    );
+    if (networkAccount) {
+      console.log('✅ STRATEGY 3 (ChainID) - Found account:', networkAccount);
+      return networkAccount.address;
+    }
+    
+    // Strategy 4: Match by network name
+    const chainObj = chains.find(chain => chain.caipId === caip2Id);
+    if (chainObj) {
+      networkAccount = accounts.find(account => 
+        account.networkName === chainObj.networkName ||
+        account.networkSymbol === chainObj.networkName
+      );
+      if (networkAccount) {
+        console.log('✅ STRATEGY 4 (Network Name) - Found account:', networkAccount);
+        return networkAccount.address;
+      }
+    }
+    
+    // Strategy 5: Log all possible matches for debugging
+    console.log('🔍 DEBUGGING INFO:');
+    console.log('Target caip2Id:', caip2Id);
+    accounts.forEach((account, index) => {
+      console.log(`Account ${index}:`, {
+        caipId: account.caipId,
+        chainId: account.chainId,
+        networkName: account.networkName,
+        networkSymbol: account.networkSymbol,
+        address: account.address
+      });
+    });
+    
+    console.warn(`❌ No account found for network ${caip2Id} using any strategy`);
+    return null;
+  };
+
   // Data fetching
   useEffect(() => {
     const fetchChains = async () => {
       try {
-        const chainsData = await getChains(oktoClient);
+        const chainsResponse = await getChains(oktoClient);
+        console.log('📡 Chains response:', chainsResponse);
+        
+        // Handle different response formats
+        let chainsData = [];
+        if (chainsResponse?.data?.network) {
+          chainsData = chainsResponse.data.network;
+        } else if (chainsResponse?.network) {
+          chainsData = chainsResponse.network;
+        } else if (Array.isArray(chainsResponse)) {
+          chainsData = chainsResponse;
+        } else {
+          console.warn('Unexpected chains response format:', chainsResponse);
+        }
+        
+        console.log('🔗 Processed chains:', chainsData);
         setChains(chainsData);
       } catch (error) {
-        console.error('Error fetching chains:', error);
+        console.error('❌ Error fetching chains:', error);
         setError(`Failed to fetch chains: ${error.message}`);
       }
     };
     fetchChains();
+  }, [oktoClient]);
+
+  // FIXED: Enhanced account fetching with better error handling
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      if (!oktoClient.isLoggedIn()) {
+        console.log('⚠️ Not logged in, skipping account fetch');
+        return;
+      }
+      
+      try {
+        console.log('📡 Fetching user accounts...');
+        const accountsResponse = await getAccount(oktoClient);
+        console.log('📡 Raw accounts response:', accountsResponse);
+        
+        // Handle different response formats more robustly
+        let accountsList = [];
+        if (accountsResponse?.data) {
+          accountsList = Array.isArray(accountsResponse.data) ? accountsResponse.data : [accountsResponse.data];
+        } else if (Array.isArray(accountsResponse)) {
+          accountsList = accountsResponse;
+        } else if (accountsResponse?.accounts) {
+          accountsList = accountsResponse.accounts;
+        } else if (accountsResponse?.result) {
+          accountsList = Array.isArray(accountsResponse.result) ? accountsResponse.result : [accountsResponse.result];
+        } else {
+          console.warn('⚠️ Unexpected accounts response format:', accountsResponse);
+          accountsList = [];
+        }
+        
+        console.log('✅ Processed accounts list:', accountsList);
+        setAccounts(accountsList);
+        
+        // Debug: Show what accounts we have
+        if (accountsList.length > 0) {
+          console.log('🔍 Available accounts breakdown:');
+          accountsList.forEach((account, index) => {
+            console.log(`Account ${index + 1}:`, {
+              caipId: account.caipId,
+              networkName: account.networkName,
+              address: account.address,
+              networkSymbol: account.networkSymbol
+            });
+          });
+        }
+        
+      } catch (error) {
+        console.error('❌ Error fetching accounts:', error);
+        setError(`Failed to fetch accounts: ${error.message}`);
+      }
+    };
+    
+    fetchAccounts();
   }, [oktoClient]);
 
   useEffect(() => {
@@ -95,7 +246,22 @@ export default function TokenTransfer() {
 
       try {
         const response = await getTokens(oktoClient);
-        const filteredTokens = response
+        console.log('🪙 All tokens response:', response);
+        
+        // Handle different response formats
+        let tokensData = [];
+        if (response?.data?.tokens) {
+          tokensData = response.data.tokens;
+        } else if (response?.tokens) {
+          tokensData = response.tokens;
+        } else if (Array.isArray(response)) {
+          tokensData = response;
+        } else {
+          console.warn('Unexpected tokens response format:', response);
+          tokensData = [];
+        }
+        
+        const filteredTokens = tokensData
           .filter(token => token.caipId === selectedChain)
           .map(token => ({
             address: token.address,
@@ -105,9 +271,10 @@ export default function TokenTransfer() {
             caipId: token.caipId,
           }));
 
+        console.log('🪙 Filtered tokens for network:', filteredTokens);
         setTokens(filteredTokens);
       } catch (error) {
-        console.error('Error fetching tokens:', error);
+        console.error('❌ Error fetching tokens:', error);
         setError(`Failed to fetch tokens: ${error.message}`);
       } finally {
         setLoadingTokens(false);
@@ -121,9 +288,10 @@ export default function TokenTransfer() {
     const fetchPortfolio = async () => {
       try {
         const data = await getPortfolio(oktoClient);
+        console.log('💰 Portfolio data:', data);
         setPortfolio(data);
       } catch (error) {
-        console.error('Error fetching portfolio:', error);
+        console.error('❌ Error fetching portfolio:', error);
         setError(`Failed to fetch portfolio: ${error.message}`);
       }
     };
@@ -139,27 +307,42 @@ export default function TokenTransfer() {
     
     const selectedChainObj = chains.find(chain => chain.caipId === selectedCaipId);
     setSponsorshipEnabled(selectedChainObj?.sponsorshipEnabled || false);
+    
+    // Log the network-specific account for this network
+    const networkAddress = getNetworkAccountAddress(selectedCaipId);
+    console.log(`🌐 Network address for ${selectedCaipId}:`, networkAddress);
   };
 
   // Token selection handler
   const handleTokenSelect = (symbol) => {
-    console.log('Selected symbol:', symbol);
-    console.log('Available tokens:', tokens);
+    console.log('🪙 Selected symbol:', symbol);
+    console.log('🪙 Available tokens:', tokens);
     const token = tokens.find(t => t.symbol === symbol);
-    console.log('Found token:', token);
+    console.log('🪙 Found token:', token);
     setSelectedToken(token || '');
   };
 
-  // Add validateFormData function
+  // Enhanced validateFormData function with proper address handling
   const validateFormData = () => {
-    console.log('Validating form data:');
+    console.log('=== 🔍 VALIDATION START ===');
+    console.log('Selected chain:', selectedChain);
     console.log('Selected token:', selectedToken);
-    console.log('Available tokens:', tokens);
+    console.log('Amount:', amount);
+    console.log('Recipient:', recipient);
+    console.log('Available accounts:', accounts);
+    
+    // Get network-specific account address
+    const fromAddress = getNetworkAccountAddress(selectedChain);
+    if (!fromAddress) {
+      throw new Error(`No account found for network ${selectedChain}. Please ensure you have an account on this network.`);
+    }
+    
+    console.log('✅ Using from address:', fromAddress);
     
     // If selectedToken is already a token object, use it directly
     const token = typeof selectedToken === 'object' ? selectedToken : tokens.find((t) => t.symbol === selectedToken);
     
-    console.log('Token found:', token);
+    console.log('🪙 Token found:', token);
     if (!token) throw new Error("Please select a valid token");
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0)
       throw new Error("Please enter a valid amount");
@@ -187,9 +370,12 @@ export default function TokenTransfer() {
       scaledAmountString = integerPart + decimalPart.padEnd(token.decimals, '0');
     }
 
-    console.log('Scaled amount string:', scaledAmountString);
-    const amountInSmallestUnit = bigInt(scaledAmountString);
-    console.log('Amount in smallest unit:', amountInSmallestUnit.toString());
+    console.log('💰 Scaled amount string:', scaledAmountString);
+    
+    // Convert to proper JavaScript BigInt
+    const amountInSmallestUnit = createBigInt(scaledAmountString);
+    console.log('💰 Amount in smallest unit (BigInt):', amountInSmallestUnit.toString());
+    console.log('💰 Amount type:', typeof amountInSmallestUnit);
 
     // For native token transfers, we need to use an empty string
     const tokenAddress = token.address || '';
@@ -199,67 +385,123 @@ export default function TokenTransfer() {
       recipient: recipient,
       token: tokenAddress,
       caip2Id: selectedChain,
+      from: fromAddress, // Add the network-specific from address
     };
 
+    console.log('=== ✅ FINAL TRANSFER PARAMETERS ===');
     console.log('Transfer parameters being sent to SDK:', transferParams);
+    console.log('=== 🔍 VALIDATION END ===');
+    
     return transferParams;
   };
 
-  // Update handleTransferToken to use evmRawTransaction for native token transfers
+  // Updated handleTransferToken with correct Okto API format
   const handleTransferToken = async () => {
     setLoading(true);
     setError(null);
 
     try {
       const transferParams = validateFormData();
+      console.log("=== 🚀 TRANSFER START ===");
       console.log("Transfer parameters being sent to SDK:", transferParams);
 
-      // If it's a native token transfer (empty token address), use evmRawTransaction
-      if (!transferParams.token) {
-        const rawTxParams = {
-          caip2Id: transferParams.caip2Id,
-          transaction: {
-            to: transferParams.recipient,
-            value: transferParams.amount,
-            data: '0x'
-          }
-        };
-        console.log("Using raw transaction for native token:", rawTxParams);
-        const jobId = await evmRawTransaction(oktoClient, rawTxParams);
-        setJobId(jobId);
+      // Use the official Okto tokenTransfer API format
+      console.log("🪙 Using official tokenTransfer API");
+      const oktoTransferParams = {
+        amount: transferParams.amount, // Native JavaScript BigInt
+        recipient: transferParams.recipient,
+        token: transferParams.token, // Empty string for native tokens, contract address for ERC20
+        caip2Id: transferParams.caip2Id
+      };
+      
+      console.log("📝 Official Okto transfer parameters:");
+      console.log("- amount:", oktoTransferParams.amount.toString(), "(type:", typeof oktoTransferParams.amount, ")");
+      console.log("- recipient:", oktoTransferParams.recipient);
+      console.log("- token:", oktoTransferParams.token || '(empty for native)');
+      console.log("- caip2Id:", oktoTransferParams.caip2Id);
+      
+      // Check if sponsorship is enabled for fee payer
+      const selectedChainObj = chains.find(chain => chain.caipId === selectedChain);
+      const feePayerAddress = selectedChainObj?.sponsorshipEnabled ? transferParams.from : undefined;
+      
+      console.log("💰 Fee payer address:", feePayerAddress || "Not using sponsorship");
+      
+      // Execute the transfer using official API
+      const result = await tokenTransfer(oktoClient, oktoTransferParams, feePayerAddress);
+      
+      console.log('✅ Transfer result:', result);
+      console.log('✅ Result type:', typeof result);
+      
+      // Handle different response types
+      if (typeof result === 'string') {
+        // Direct job ID
+        setJobId(result);
         showModal('jobId');
-        console.log('Transfer jobId:', jobId);
+        console.log('✅ Transfer jobId:', result);
+      } else if (result && typeof result === 'object') {
+        // UserOperation object - need to sign and execute
+        console.log('📝 Received UserOperation, need to sign and execute');
+        setUserOp(result);
+        
+        try {
+          const signedOp = await oktoClient.signUserOp(result);
+          const jobId = await oktoClient.executeUserOp(signedOp);
+          setJobId(jobId);
+          showModal('jobId');
+          console.log('✅ Final transfer jobId:', jobId);
+        } catch (signError) {
+          console.error('❌ Error signing/executing UserOp:', signError);
+          setError(`Error completing transfer: ${signError.message}`);
+        }
       } else {
-        // For ERC20 tokens, use tokenTransfer
-        const userOp = await tokenTransfer(oktoClient, transferParams);
-        const signedOp = await oktoClient.signUserOp(userOp);
-        const jobId = await oktoClient.executeUserOp(signedOp);
-        setJobId(jobId);
-        showModal('jobId');
-        console.log('Transfer jobId:', jobId);
+        console.warn('⚠️ Unexpected result format:', result);
+        setError('Transfer completed but received unexpected response format');
       }
+      
+      // Clear form on success
+      setAmount('');
+      setRecipient('');
+      
     } catch (error) {
+      console.error('=== ❌ TRANSFER ERROR ===');
       console.error('Error in token transfer:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      });
       setError(`Error in token transfer: ${error.message}`);
     } finally {
       setLoading(false);
+      console.log("=== 🚀 TRANSFER END ===");
     }
   };
 
-  // Update handleTokenTransferUserOp function
+  // Update handleTokenTransferUserOp to use official API format
   const handleTokenTransferUserOp = async () => {
     setLoading(true);
     setError(null);
 
     try {
       const transferParams = validateFormData();
-      console.log("Transfer parameters being sent to SDK:", transferParams);
-      const userOp = await tokenTransfer(oktoClient, transferParams);
+      console.log("🔄 Creating UserOp with official API format:", transferParams);
+      
+      const oktoTransferParams = {
+        amount: transferParams.amount, // BigInt amount
+        recipient: transferParams.recipient,
+        token: transferParams.token, // Empty string for native, contract address for ERC20
+        caip2Id: transferParams.caip2Id
+      };
+      
+      console.log("📝 Official Okto UserOp parameters:", oktoTransferParams);
+      
+      // For UserOp workflow, we don't use feePayerAddress in the initial call
+      const userOp = await tokenTransfer(oktoClient, oktoTransferParams);
       setUserOp(userOp);
       showModal('unsignedOp');
-      console.log('UserOp:', userOp);
+      console.log('✅ UserOp:', userOp);
     } catch (error) {
-      console.error('Error in token transfer:', error);
+      console.error('❌ Error in creating user operation:', error);
       setError(`Error in creating user operation: ${error.message}`);
     } finally {
       setLoading(false);
@@ -279,9 +521,9 @@ export default function TokenTransfer() {
       const signedOp = await oktoClient.signUserOp(userOp);
       setSignedUserOp(signedOp);
       showModal('signedOp');
-      console.log('Signed UserOp', signedOp);
+      console.log('✅ Signed UserOp', signedOp);
     } catch (error) {
-      console.error('Error in signing the userop:', error);
+      console.error('❌ Error in signing the userop:', error);
       setError(`Error in signing transaction: ${error.message}`);
     } finally {
       setLoading(false);
@@ -301,9 +543,9 @@ export default function TokenTransfer() {
       const jobId = await oktoClient.executeUserOp(signedUserOp);
       setJobId(jobId);
       showModal('jobId');
-      console.log('Job Id', jobId);
+      console.log('✅ Job Id', jobId);
     } catch (error) {
-      console.error('Error in executing the userop:', error);
+      console.error('❌ Error in executing the userop:', error);
       setError(`Error in executing transaction: ${error.message}`);
     } finally {
       setLoading(false);
@@ -319,6 +561,36 @@ export default function TokenTransfer() {
       {error && (
         <div className="bg-red-900/50 border border-red-700 text-red-100 px-4 py-3 rounded mb-4">
           {error}
+        </div>
+      )}
+
+      {/* Enhanced Debug Info - Show current network account */}
+      {selectedChain && (
+        <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 mb-4">
+          <h4 className="text-blue-400 font-semibold mb-2">🔍 Network Account Info</h4>
+          <div className="text-sm text-gray-300 space-y-1">
+            <p><strong>Selected Network:</strong> {selectedChain}</p>
+            <p><strong>Account Address:</strong> 
+              <span className={getNetworkAccountAddress(selectedChain) ? 'text-green-400' : 'text-red-400'}>
+                {getNetworkAccountAddress(selectedChain) || 'Not found'}
+              </span>
+            </p>
+            <p><strong>Available Accounts:</strong> {accounts.length}</p>
+            {accounts.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-blue-400">View All Accounts</summary>
+                <div className="mt-2 bg-gray-800/50 p-2 rounded text-xs max-h-40 overflow-y-auto">
+                  {accounts.map((account, index) => (
+                    <div key={index} className="mb-2 p-2 bg-gray-700/50 rounded">
+                      <div><strong>CAIP ID:</strong> {account.caipId}</div>
+                      <div><strong>Network:</strong> {account.networkName}</div>
+                      <div><strong>Address:</strong> {account.address}</div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
         </div>
       )}
 
@@ -382,20 +654,20 @@ export default function TokenTransfer() {
         {/* Amount Field */}
         <div className="form-group">
           <label className="form-label">
-            Amount (in smallest unit)
+            Amount
           </label>
           <input
             type="text"
             className="form-input"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="Enter amount in smallest unit (e.g., wei)"
+            placeholder="Enter amount (e.g., 0.1 for 0.1 tokens)"
             disabled={loading}
           />
           <small className="text-gray-400">
             {selectedToken &&
-              tokens.find(t => t.symbol === selectedToken)?.decimals &&
-              `This token has ${tokens.find(t => t.symbol === selectedToken)?.decimals} decimals`}
+              tokens.find(t => t.symbol === (typeof selectedToken === 'object' ? selectedToken.symbol : selectedToken))?.decimals &&
+              `This token has ${tokens.find(t => t.symbol === (typeof selectedToken === 'object' ? selectedToken.symbol : selectedToken))?.decimals} decimals`}
           </small>
         </div>
 
@@ -419,18 +691,38 @@ export default function TokenTransfer() {
           <button
             className="btn btn-primary w-full"
             onClick={handleTransferToken}
-            disabled={loading || !selectedChain || !selectedToken || !amount || !recipient}
+            disabled={loading || !selectedChain || !selectedToken || !amount || !recipient || !getNetworkAccountAddress(selectedChain)}
           >
             {loading ? "Processing..." : "Transfer Token (Direct)"}
           </button>
           <button
             className="btn btn-secondary w-full"
             onClick={handleTokenTransferUserOp}
-            disabled={loading || !selectedChain || !selectedToken || !amount || !recipient}
+            disabled={loading || !selectedChain || !selectedToken || !amount || !recipient || !getNetworkAccountAddress(selectedChain)}
           >
             {loading ? "Processing..." : "Create Token Transfer UserOp"}
           </button>
         </div>
+
+        {/* Validation Warning */}
+        {selectedChain && !getNetworkAccountAddress(selectedChain) && (
+          <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4">
+            <p className="text-yellow-400 font-semibold">⚠️ No Account Found</p>
+            <p className="text-yellow-300 text-sm">
+              No account found for the selected network. Please ensure you have an account on {selectedChain}.
+            </p>
+            <details className="mt-2">
+              <summary className="cursor-pointer text-yellow-400 text-sm">Debug Info</summary>
+              <div className="mt-2 text-xs text-yellow-200">
+                <p>Searched for: {selectedChain}</p>
+                <p>Available accounts: {accounts.length}</p>
+                {accounts.map((acc, idx) => (
+                  <p key={idx}>Account {idx + 1}: {acc.caipId} → {acc.address}</p>
+                ))}
+              </div>
+            </details>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
@@ -443,7 +735,12 @@ export default function TokenTransfer() {
           <p>Your transaction has been submitted successfully.</p>
           <div className="bg-gray-700 p-3 rounded">
             <p className="text-sm text-gray-300 mb-1">Job ID:</p>
-            <p className="font-mono break-all">{jobId}</p>
+            <p className="font-mono break-all text-green-400">{jobId}</p>
+          </div>
+          <div className="bg-blue-900/20 border border-blue-500/30 rounded p-3">
+            <p className="text-blue-400 text-sm">
+              ✅ Transaction sent to blockchain! You can track this transaction using the Job ID above.
+            </p>
           </div>
         </div>
       </Modal>
@@ -499,4 +796,4 @@ export default function TokenTransfer() {
       </Modal>
     </div>
   );
-} 
+}
