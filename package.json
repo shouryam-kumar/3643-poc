@@ -5,6 +5,7 @@
   "dependencies": {
     "@okto_web3/react-sdk": "^0.5.3",
     "@react-oauth/google": "^0.12.2",
+    "big-integer": "^1.6.52",
     "buffer": "^6.0.3",
     "ethers": "^6.14.3",
     "react": "^18.3.1",

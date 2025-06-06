@@ -8,6 +8,8 @@ import {
   import { googleLogout } from "@react-oauth/google";
   import { useState } from "react";
   import { useNavigate } from "react-router-dom";
+  import TokenTransfer from './components/TokenTransfer';
+  import RawTransaction from './components/RawTransaction';
   
   export default function Homepage() {
     const oktoClient = useOkto();
@@ -18,6 +20,7 @@ import {
     const isLoggedIn = oktoClient.isLoggedIn();
     const userSWA = oktoClient.userSWA;
     const clientSWA = oktoClient.clientSWA;
+    const accountInfo = results.getAccount?.result;
   
     // Handles user logout process
     async function handleLogout() {
@@ -43,13 +46,18 @@ import {
     const handleApiCall = async (apiFunction, functionName) => {
       setLoading(prev => ({ ...prev, [functionName]: true }));
       try {
-        const result = await apiFunction(oktoClient);
+        const response = await apiFunction(oktoClient);
+        // Add console logs to inspect the response and result before updating state
+        console.log(`${functionName} raw response:`, response);
+        // Handle both direct results and wrapped results
+        const result = response?.result || response;
+        console.log(`${functionName} processed result:`, result);
         setResults(prev => ({ ...prev, [functionName]: result }));
         console.log(`${functionName} result:`, result);
         return { result };
       } catch (error) {
         console.error(`${functionName} error:`, error);
-        const errorResult = { error: error.message };
+        const errorResult = { error: error.message || 'An unknown error occurred' };
         setResults(prev => ({ ...prev, [functionName]: errorResult }));
         return errorResult;
       } finally {
@@ -57,28 +65,32 @@ import {
       }
     };
   
-    // ERC-3643 Compliance Check Function
+    // ERC-3643 Compliance Check Function (Demonstration)
     const checkERC3643Compliance = async () => {
       setLoading(prev => ({ ...prev, 'erc3643': true }));
       try {
         // This is a demonstration - in a real implementation, you would:
         // 1. Check if token implements ERC-3643 interface
-        // 2. Verify identity registry
-        // 3. Check transfer eligibility
+        // 2. Verify identity registry using the Okto SDK or a separate service
+        // 3. Check transfer eligibility based on various compliance rules
         
+        // Simulate an API call delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         const demoComplianceResult = {
-          tokenAddress: "0x1234567890abcdef...", // Example ERC-3643 token
-          isERC3643Compliant: true,
-          identityRegistry: "0xabcdef1234567890...",
-          userVerified: true,
-          transferEligible: true,
+          tokenAddress: "0xDemoERC3643TokenAddress...", // Example ERC-3643 token
+          isERC3643Compliant: true, // Assume the token is compliant for demo
+          identityRegistry: "0xDemoIdentityRegistry...", // Example Registry Address
+          userVerified: true, // Assume user is verified for demo
+          transferEligible: true, // Assume user is eligible for demo
           complianceChecks: {
-            identityVerification: "✅ Verified",
-            countryRestrictions: "✅ Allowed",
-            investorAccreditation: "✅ Accredited",
-            transferLimits: "✅ Within limits"
+            identityVerification: { status: '✅ Verified', details: 'User identity confirmed.' },
+            countryRestrictions: { status: '✅ Allowed', details: 'User location is not restricted.' },
+            investorAccreditation: { status: '✅ Accredited', details: 'User meets accreditation criteria.' },
+            transferLimits: { status: '✅ Within limits', details: 'Transfer amount is within daily/transaction limits.' },
+            sanctionsScreening: { status: '✅ Passed', details: 'User passed sanctions checks.' },
           },
-          message: "User is eligible for ERC-3643 token transfers"
+          message: "User is eligible for ERC-3643 token operations based on compliance checks."
         };
         
         setResults(prev => ({ ...prev, 'erc3643': demoComplianceResult }));
@@ -86,7 +98,7 @@ import {
         return { result: demoComplianceResult };
       } catch (error) {
         console.error('ERC-3643 compliance check error:', error);
-        const errorResult = { error: error.message };
+        const errorResult = { error: error.message || 'An unknown error occurred during compliance check.' };
         setResults(prev => ({ ...prev, 'erc3643': errorResult }));
         return errorResult;
       } finally {
@@ -98,38 +110,105 @@ import {
     const ApiButton = ({ title, apiFunction, functionName, description = "" }) => (
       <div className="text-center">
         <button
-          className="w-full p-3 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:bg-blue-300"
-          onClick={() => handleApiCall(apiFunction, functionName)}
+          className={`btn btn-primary w-full ${loading[functionName] ? 'opacity-50 cursor-not-allowed' : ''}`}
+          onClick={() => !loading[functionName] && handleApiCall(apiFunction, functionName)}
           disabled={loading[functionName]}
         >
           {loading[functionName] ? 'Loading...' : title}
         </button>
         {description && (
-          <p className="text-xs text-gray-600 mt-1">{description}</p>
+          <p className="text-xs text-gray-400 mt-sm">{description}</p>
         )}
       </div>
     );
   
-    // Results display component
+    // Results display component - Refactored for better rendering
     const ResultsDisplay = ({ functionName, title }) => {
-      const result = results[functionName];
-      if (!result) return null;
-  
+      const res = results[functionName];
+      // The actual result object from the API call (might contain a 'result' wrapper or be direct)
+      const apiResponse = res?.result || res;
+
+      const error = res?.error;
+
+      // Debugging logs (commented out)
+      // console.log(`ResultsDisplay: ${functionName} - res:`, res);
+      // console.log(`ResultsDisplay: ${functionName} - apiResponse:`, apiResponse);
+      // console.log(`ResultsDisplay: ${functionName} - error:`, error);
+      // console.log(`ResultsDisplay: ${functionName} - loading:`, loading[functionName]);
+
+      // Display loading state immediately if applicable
+      if (loading[functionName]) {
+        return (
+          <div className="card-dark p-md">
+            <h4 className="font-semibold text-white mb-sm">{title} Results:</h4>
+            <div className="flex items-center space-x-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              <p className="text-gray-400">Loading...</p>
+            </div>
+          </div>
+        );
+      }
+
+      // If not loading and no result yet, or if there's an error, handle accordingly
+      if (!res && !error) {
+        return null; // Don't render the section yet
+      }
+
+      // Display error state if error object is present
+      if (error) {
+        return (
+          <div className="card-dark p-md">
+            <h4 className="font-semibold text-white mb-sm">{title} Results:</h4>
+            <div className="text-error text-sm bg-red-900/20 p-sm rounded break-words border border-red-500/30">
+              <p className="font-medium">Error:</p>
+              <p className="mt-1">{error}</p>
+            </div>
+          </div>
+        );
+      }
+
+      // Helper function to format JSON data
+      const formatValue = (value) => {
+        if (typeof value === 'object' && value !== null) {
+          return (
+            <pre className="bg-gray-800/50 p-2 rounded text-sm overflow-x-auto">
+              {JSON.stringify(value, null, 2)}
+            </pre>
+          );
+        }
+        return value;
+      };
+
+      // Display results if not loading and no error
+      // Always display the raw apiResponse data in a code block
       return (
-        <div className="mt-4 p-4 bg-gray-100 rounded border">
-          <h4 className="font-semibold text-gray-800 mb-2">{title} Result:</h4>
-          <pre className="text-xs bg-gray-800 text-green-400 p-2 rounded overflow-auto max-h-40">
-            {JSON.stringify(result, null, 2)}
-          </pre>
+        <div className="card-dark p-md">
+          <h4 className="font-semibold text-white mb-sm">{title} Results:</h4>
+          <div className="results-container space-y-4">
+
+            {/* Display raw apiResponse if available and no error/loading */}
+            {!loading[functionName] && !error && apiResponse !== undefined && apiResponse !== null && (
+              <div className="generic-result bg-gray-800/30 p-3 rounded">
+                 {/* Access nested data if it exists, otherwise show the whole response */}
+                 {apiResponse.data ? formatValue(apiResponse.data) : formatValue(apiResponse)}
+              </div>
+            )}
+
+             {/* Message if no data and no error */}
+             {!loading[functionName] && !error && (apiResponse === undefined || apiResponse === null) && (
+               <p className="text-gray-400">No data available.</p>
+             )}
+
+          </div>
         </div>
       );
     };
   
     return (
       <main className="min-h-screen bg-gradient-to-b from-violet-100 to-violet-200 py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto space-y-8">
-          <div className="text-center">
-            <h1 className="text-4xl font-bold text-violet-900 mb-4">
+        <div className="container mx-auto space-y-8">
+          <div className="text-center mb-lg">
+            <h1 className="text-4xl font-bold text-violet-900 mb-sm">
               🚀 ERC-3643 Okto Integration
             </h1>
             <p className="text-lg text-violet-700">
@@ -138,41 +217,51 @@ import {
           </div>
   
           {/* User Details */}
-          <div className="space-y-4">
-            <h2 className="text-violet-900 font-bold text-2xl">👤 User Details</h2>
-            <div className="bg-white p-6 rounded-xl shadow-lg border border-violet-200">
-              <pre className="whitespace-pre-wrap break-words text-gray-800">
+          <div className="card-dark p-xl mb-xl">
+            <h2 className="text-xl font-bold text-white mb-lg flex items-center">
+              <span className="mr-md">👤</span> User Details
+            </h2>
+            <div className="bg-white/10 p-md rounded-lg">
+              <div className="text-sm text-gray-300 whitespace-pre-wrap break-words">
                 {isLoggedIn
-                  ? `✅ Logged in \n👤 User SWA: ${userSWA} \n🔧 Client SWA: ${clientSWA}`
-                  : "❌ Not signed in"}
-              </pre>
+                  ? <><p>✅ Logged in</p><p>🔧 Client SWA: <span className="address">{clientSWA || 'Not available'}</span></p></>
+                  : <p>❌ Not signed in</p>}
+              </div>
             </div>
           </div>
   
           {/* Session Management */}
-          <div className="bg-white rounded-xl shadow-lg border border-violet-200 p-6">
-            <h2 className="text-violet-900 font-semibold text-2xl mb-6">
-              🔐 Session Management
+          <div className="card-dark p-xl mb-xl">
+            <h2 className="text-xl font-bold text-white mb-lg flex items-center">
+              <span className="mr-md">🔐</span> Session Management
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              <ApiButton
+            <div className="flex justify-center">
+              <button
                 title="Logout"
-                apiFunction={handleLogout}
-                functionName="logout"
-                description="Clear session and return to login"
-              />
+                onClick={handleLogout}
+                disabled={loading.logout}
+                className="btn btn-outline text-error"
+              >
+                {loading.logout ? 'Logging out...' : 'Logout'}
+              </button>
             </div>
           </div>
   
+          {/* Token Transfer */}
+          <TokenTransfer />
+
+          {/* Raw Transaction */}
+          <RawTransaction />
+  
           {/* Okto Explorer Functions */}
-          <div className="bg-white rounded-xl shadow-lg border border-violet-200 p-6">
-            <h2 className="text-violet-900 font-semibold text-2xl mb-6">
-              🔍 Okto Explorer Functions
+          <div className="card-dark p-xl mb-xl">
+            <h2 className="text-xl font-bold text-white mb-lg flex items-center">
+              <span className="mr-md">🔍</span> Okto Explorer Functions
             </h2>
-            <p className="text-gray-600 mb-6">
+            <p className="text-gray-400 mb-lg">
               For supported networks, check out{" "}
               <a
-                className="underline text-indigo-700 hover:text-indigo-900"
+                className="text-secondary hover:underline"
                 href="https://docs.okto.tech/docs/supported-chains"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -180,7 +269,7 @@ import {
                 Supported Chains & Tokens Guide
               </a>
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-lg">
               <ApiButton
                 title="Get Account"
                 apiFunction={getAccount}
@@ -200,73 +289,25 @@ import {
                 description="List available tokens"
               />
             </div>
-            
+
             {/* Display results */}
-            <div className="space-y-4">
+            <div className="space-y-md mt-xl">
               <ResultsDisplay functionName="getAccount" title="Account" />
               <ResultsDisplay functionName="getPortfolio" title="Portfolio" />
               <ResultsDisplay functionName="getTokens" title="Tokens" />
             </div>
           </div>
   
-          {/* ERC-3643 Compliance Section */}
-          <div className="bg-white rounded-xl shadow-lg border border-violet-200 p-6">
-            <h2 className="text-violet-900 font-semibold text-2xl mb-6">
-              🛡️ ERC-3643 Compliance Features
-            </h2>
-            <p className="text-gray-600 mb-6">
-              Check compliance status for ERC-3643 compliant security tokens.
-              This includes identity verification, transfer restrictions, and regulatory compliance.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <ApiButton
-                title="Check ERC-3643 Compliance"
-                apiFunction={checkERC3643Compliance}
-                functionName="erc3643"
-                description="Verify compliance for token transfers"
-              />
-            </div>
-            
-            <ResultsDisplay functionName="erc3643" title="ERC-3643 Compliance" />
-          </div>
-  
-          {/* Token Operations */}
-          <div className="bg-white rounded-xl shadow-lg border border-violet-200 p-6">
-            <h2 className="text-violet-900 font-semibold text-2xl mb-6">
-              💰 Token Operations
-            </h2>
-            <p className="text-gray-600 mb-6">
-              Perform token transfers and operations with built-in compliance checking.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button
-                onClick={() => alert('Token Transfer feature - Would integrate with Okto transfer APIs')}
-                className="px-6 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-center font-medium"
-              >
-                🔄 Transfer Tokens
-              </button>
-              <button
-                onClick={() => alert('Raw Transaction feature - Would integrate with Okto raw transaction APIs')}
-                className="px-6 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-center font-medium"
-              >
-                ⚙️ Raw Transactions
-              </button>
-              <button
-                onClick={() => alert('ERC-3643 Transfer - Would implement compliance-checked transfers')}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-center font-medium"
-              >
-                🛡️ ERC-3643 Transfer
-              </button>
-            </div>
-          </div>
+         
+          
   
           {/* Development Info */}
-          <div className="bg-gray-800 text-white rounded-xl shadow-lg p-6">
+          <div className="bg-gray-800 text-white rounded-xl shadow-lg p-6 mt-xl">
             <h2 className="text-xl font-semibold mb-4">🔧 Development Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
                 <h3 className="font-semibold text-blue-400 mb-2">Environment:</h3>
-                <p>Mode: {import.meta.env.VITE_OKTO_ENVIRONMENT || 'sandbox'}</p>
+                <p>Mode: {process.env.REACT_APP_OKTO_ENVIRONMENT || 'sandbox'}</p>
                 <p>Okto SDK: @okto_web3/react-sdk</p>
               </div>
               <div>
@@ -275,12 +316,50 @@ import {
                   <li>✅ Google OAuth Authentication</li>
                   <li>✅ Multi-chain Account Management</li>
                   <li>✅ Portfolio & Token Queries</li>
-                  <li>✅ ERC-3643 Compliance Framework</li>
                 </ul>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Footer */}
+        <footer className="glass-dark mt-xl p-xl">
+          <div className="container mx-auto grid grid-cols-1 md:grid-cols-3 gap-lg">
+            <div>
+              <h4 className="text-white font-bold mb-md">ERC-3643 Features</h4>
+              <ul className="space-y-sm text-gray-400 text-sm">
+                <li>🛡️ Identity Registry Integration</li>
+                <li>📋 Compliance Rule Engine</li>
+                <li>🔒 Transfer Restriction Controls</li>
+                <li>📊 Regulatory Reporting</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-bold mb-md">Supported Networks</h4>
+              <ul className="space-y-sm text-gray-400 text-sm">
+                <li>🔗 Ethereum Mainnet</li>
+                <li>🔗 Polygon</li>
+                <li>🔗 Binance Smart Chain</li>
+                <li>🔗 Arbitrum</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-bold mb-md">Security</h4>
+              <ul className="space-y-sm text-gray-400 text-sm">
+                <li>🔐 End-to-end Encryption</li>
+                <li>🛡️ Multi-signature Support</li>
+                <li>⚡ Gas Optimization</li>
+                <li>🔍 Real-time Monitoring</li>
+              </ul>
+            </div>
+          </div>
+          <div className="border-t border-white/10 mt-lg pt-lg text-center">
+            <p className="text-gray-400 text-sm">
+              Powered by <span className="text-primary font-medium">Okto SDK v2</span> •
+              Environment: <span className="text-secondary">{process.env.REACT_APP_OKTO_ENVIRONMENT || 'sandbox'}</span>
+            </p>
+          </div>
+        </footer>
       </main>
     );
   }
