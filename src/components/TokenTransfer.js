@@ -661,7 +661,7 @@ export default function TokenTransfer() {
             className="form-input"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="Enter amount (e.g., 0.1 for 0.1 tokens)"
+            placeholder="enter in token value, for ex 0.1 PL"
             disabled={loading}
           />
           <small className="text-gray-400">
